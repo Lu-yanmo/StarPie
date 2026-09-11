@@ -345,6 +345,28 @@ public static class ConfigManager
 		}
 	}
 
+	/// <summary>
+	/// 返回当前前台进程命中的程序专属方案的 Trigger 覆盖；未命中任何设了 Trigger 的方案时返回 null（表示跟随全局）。
+	/// 供热路径（鼠标/键盘钩子与手势控制器）解析 per-app 唤醒键，与全局逻辑保持向后兼容：无覆盖时恒返回 null。
+	/// </summary>
+	public static TriggerConfig? GetActiveProfileTriggerOverride()
+	{
+		if (CurrentConfig == null)
+		{
+			return null;
+		}
+		string proc = ActiveWindowHelper.GetActiveWindowProcessName();
+		if (!string.IsNullOrEmpty(proc))
+		{
+			WheelProfile p = GetProfileForProcess(proc);
+			if (p?.Trigger != null)
+			{
+				return p.Trigger;
+			}
+		}
+		return null;
+	}
+
 	public static WheelProfile GetProfileForProcess(string processName)
 	{
 		if (string.IsNullOrEmpty(processName))
@@ -369,7 +391,12 @@ public static class ConfigManager
 				// 检查 BoundProcesses 字段（支持逗号/分号/空格分隔多个进程）
 				if (!string.IsNullOrWhiteSpace(profile.BoundProcesses))
 				{
-					string[] tokens = profile.BoundProcesses.Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+					// 分隔符策略：只要出现逗号/分号/竖线任一显式分隔符，就仅按它们切分（保留进程名内部空格，如 "Qoder CN IDE.exe"）；
+					// 完全无显式分隔符时才回退按空格切分，兼容历史以空格分隔的配置。杜绝带空格进程名被误切碎导致识别失败。
+					char[] explicitDelims = new[] { ',', ';', '|' };
+					string[] tokens = profile.BoundProcesses.IndexOfAny(explicitDelims) >= 0
+						? profile.BoundProcesses.Split(explicitDelims, StringSplitOptions.RemoveEmptyEntries)
+						: profile.BoundProcesses.Split(new[] { ',', ';', '|', ' ' }, StringSplitOptions.RemoveEmptyEntries);
 					foreach (string token in tokens)
 					{
 						string target = token.Trim().ToLowerInvariant();

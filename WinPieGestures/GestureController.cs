@@ -44,6 +44,9 @@ public class GestureController : IDisposable
 
 	private bool _mouseTriggerDown;
 
+	// per-app 唤醒触发键：本次手势按下时解析到的生效 TriggerConfig，供抬起/重放同源使用，杜绝划出窗口后丢键或重放错键。
+	private TriggerConfig? _activeTriggerForGesture;
+
 	// ---- 键盘触发穿透模式 ----
 	// 触发键 KeyDown/KeyUp 一律原生放行，仅用持握时长+拖动阈值唤出轮盘。
 	// _kbTriggerWaiting 区分"键盘触发正在等待阈值"与鼠标触发的等待态（后者仍需吞键）。
@@ -717,7 +720,7 @@ public class GestureController : IDisposable
 			isProcessIsolated = isBlacklisted;
 		}
 
-		TriggerConfig? triggerConfig = ConfigManager.CurrentConfig.Trigger;
+		TriggerConfig? triggerConfig = ResolveEffectiveTrigger();
 		ModifierKeys currentModifiers = KeyboardHook.GetCurrentModifiers();
 		bool disableCtrl = ConfigManager.CurrentConfig.DisableOnCtrl && currentModifiers.HasFlag(ModifierKeys.Control) && !(triggerConfig?.RequireCtrl == true);
 		bool disableShift = ConfigManager.CurrentConfig.DisableOnShift && currentModifiers.HasFlag(ModifierKeys.Shift) && !(triggerConfig?.RequireShift == true);
@@ -745,6 +748,15 @@ public class GestureController : IDisposable
 		return true;
 	}
 
+	/// <summary>
+	/// 解析当前应生效的唤醒触发配置：按前台进程命中其程序专属方案的 Trigger；该方案未单独设置（null）时回退全局 AppConfig.Trigger。
+	/// 任一方案都未设时恒等返回全局，保证零回归。仅在触发键按下/抬起边界与隔离判定时调用，开销可接受。
+	/// </summary>
+	private TriggerConfig ResolveEffectiveTrigger()
+	{
+		return ConfigManager.GetActiveProfileTriggerOverride() ?? ConfigManager.CurrentConfig?.Trigger ?? new TriggerConfig();
+	}
+
 	private void Hook_OnTriggerButtonDown(object? sender, MouseEventArgs e)
 	{
 		//IL_0027: Unknown result type (might be due to invalid IL or missing references)
@@ -759,7 +771,7 @@ public class GestureController : IDisposable
 		//IL_0061: Unknown result type (might be due to invalid IL or missing references)
 		//IL_0087: Unknown result type (might be due to invalid IL or missing references)
 		//IL_008c: Unknown result type (might be due to invalid IL or missing references)
-		TriggerConfig triggerConfig = ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		TriggerConfig triggerConfig = ResolveEffectiveTrigger();
 		if (triggerConfig.TriggerType != "Mouse")
 		{
 			return;
@@ -782,6 +794,7 @@ public class GestureController : IDisposable
 			var (scaleX, scaleY) = RadialWindow.GetMonitorDpiScale(_startPoint);
 			_currentDpiScaleX = scaleX;
 			_currentDpiScaleY = scaleY;
+			_activeTriggerForGesture = triggerConfig;
 			BeginGestureTracking();
 			_isWaitingForThreshold = true;
 			_isGestureActive = false;
@@ -810,7 +823,7 @@ public class GestureController : IDisposable
 			return;
 		}
 		string gestureButton = ConfigManager.CurrentConfig.GestureTriggerButton ?? "MiddleButton";
-		var triggerConfig = ConfigManager.CurrentConfig.Trigger;
+		var triggerConfig = ResolveEffectiveTrigger();
 		string wheelBtn = triggerConfig?.MouseButton ?? ConfigManager.CurrentConfig.TriggerButton ?? "RightButton";
 		// 冲突守卫：若手势按键与主轮盘触发键重叠，优先保证轮盘手势，手势让位，杜绝双重拦截
 		if (string.Equals(gestureButton, wheelBtn, StringComparison.OrdinalIgnoreCase))
@@ -1231,7 +1244,8 @@ public class GestureController : IDisposable
 
 	private void Hook_OnTriggerButtonUp(object? sender, MouseEventArgs e)
 	{
-		TriggerConfig triggerConfig = ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		TriggerConfig triggerConfig = _activeTriggerForGesture ?? ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		_activeTriggerForGesture = null;
 		if (triggerConfig.TriggerType != "Mouse")
 		{
 			return;
@@ -1441,7 +1455,7 @@ public class GestureController : IDisposable
 		//IL_0062: Unknown result type (might be due to invalid IL or missing references)
 		//IL_00da: Unknown result type (might be due to invalid IL or missing references)
 		//IL_00df: Unknown result type (might be due to invalid IL or missing references)
-		TriggerConfig triggerConfig = ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		TriggerConfig triggerConfig = ResolveEffectiveTrigger();
 		if (triggerConfig.TriggerType != "Keyboard")
 		{
 			return;
@@ -1481,6 +1495,7 @@ public class GestureController : IDisposable
 			var (dpiX, dpiY) = RadialWindow.GetMonitorDpiScale(_startPoint);
 			_currentDpiScaleX = dpiX;
 			_currentDpiScaleY = dpiY;
+			_activeTriggerForGesture = triggerConfig;
 			BeginGestureTracking();
 			_isWaitingForThreshold = true;
 			_isGestureActive = false;
@@ -1496,7 +1511,8 @@ public class GestureController : IDisposable
 
 	private void KeyboardHook_OnKeyUp(object? sender, GlobalKeyEventArgs e)
 	{
-		TriggerConfig triggerConfig = ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		TriggerConfig triggerConfig = _activeTriggerForGesture ?? ConfigManager.CurrentConfig.Trigger ?? new TriggerConfig();
+		_activeTriggerForGesture = null;
 		if (triggerConfig.TriggerType != "Keyboard")
 		{
 			return;

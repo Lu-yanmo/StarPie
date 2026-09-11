@@ -432,9 +432,17 @@ public class MouseHook
 			}
 			var triggerConfig = ConfigManager.CurrentConfig?.Trigger;
 			bool isMouseTrigger = triggerConfig == null || string.Equals(triggerConfig.TriggerType, "Mouse", StringComparison.OrdinalIgnoreCase);
+			string text2 = triggerConfig?.MouseButton ?? ConfigManager.CurrentConfig?.TriggerButton ?? "RightButton";
+			// per-app 唤醒触发键：若前台进程命中的方案单独设置了 Trigger，则改用该方案的类型与按键门控事件源；
+			// 类型不同时（如全局鼠标、此 app 键盘）另一类物理键不唤醒、直接穿透放行。无覆盖时上面两行即旧行为，零回归。
+			TriggerConfig? profileTriggerOverride = ConfigManager.GetActiveProfileTriggerOverride();
+			if (profileTriggerOverride != null)
+			{
+				isMouseTrigger = string.Equals(profileTriggerOverride.TriggerType, "Mouse", StringComparison.OrdinalIgnoreCase);
+				text2 = profileTriggerOverride.MouseButton ?? ConfigManager.CurrentConfig?.TriggerButton ?? "RightButton";
+			}
 			if (isMouseTrigger)
 			{
-				string text2 = triggerConfig?.MouseButton ?? ConfigManager.CurrentConfig?.TriggerButton ?? "RightButton";
 				bool num2 = flag && string.Equals(text, text2, StringComparison.OrdinalIgnoreCase);
 				bool flag3 = flag2 && string.Equals(text, text2, StringComparison.OrdinalIgnoreCase);
 				if (num2)
